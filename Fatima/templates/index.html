@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Plant Monitoring System</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+    --green:#2e7d32;
+    --light:#f4f9f4;
+    --card:#ffffff;
+    --accent:#a5d6a7;
+    --danger:#c62828;
+}
+
+* { box-sizing:border-box; }
+
+body {
+    font-family:"Poppins", sans-serif;
+    background:linear-gradient(135deg,#e8f5e9,#f1f8e9);
+    margin:0;
+    padding:30px;
+    color:#1b5e20;
+}
+
+h1 {
+    text-align:center;
+    font-weight:600;
+    margin-bottom:30px;
+}
+
+.container {
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+    gap:25px;
+}
+
+.card {
+    background:var(--card);
+    padding:22px;
+    border-radius:18px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.08);
+    transition:0.25s ease;
+    position:relative;
+    overflow:hidden;
+}
+
+.card:hover {
+    transform:translateY(-4px);
+    box-shadow:0 12px 30px rgba(0,0,0,0.12);
+}
+
+.card::before {
+    content:"";
+    position:absolute;
+    top:0;
+    left:0;
+    right:0;
+    height:6px;
+    background:linear-gradient(90deg,#66bb6a,#43a047);
+}
+
+h2 { margin-top:0; font-weight:600; color:var(--green); }
+
+.log {
+    max-height:260px;
+    overflow-y:auto;
+    margin-top:12px;
+    padding-right:6px;
+}
+
+.item {
+    background:var(--light);
+    padding:10px 12px;
+    border-radius:10px;
+    margin-bottom:8px;
+    font-size:14px;
+    border-left:4px solid var(--accent);
+}
+
+.countdown {
+    font-size:32px;
+    text-align:center;
+    font-weight:600;
+    margin-top:15px;
+}
+
+.healthy { color:var(--green); }
+.unhealthy { color:var(--danger); }
+
+.subtitle {
+    text-align:center;
+    font-size:14px;
+    opacity:0.7;
+}
+</style>
+</head>
+<body>
+
+<h1>🌱 Plant Monitoring Dashboard</h1>
+
+<div class="container">
+
+    <div class="card">
+        <h2>Leaf Discoloration Log</h2>
+        <div class="subtitle">YOLO automatic detection</div>
+        <div id="leafLog" class="log"></div>
+    </div>
+
+    <div class="card">
+        <h2>Fertilizer Countdown</h2>
+        <div class="subtitle">Next automatic ejection</div>
+        <div id="countdown" class="countdown"></div>
+    </div>
+
+    <div class="card">
+        <h2>Fertilizer Ejection History</h2>
+        <div id="fertilizerLog" class="log"></div>
+    </div>
+
+</div>
+
+<script>
+const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+
+const leafLog = document.getElementById("leafLog");
+const fertilizerLog = document.getElementById("fertilizerLog");
+const countdown = document.getElementById("countdown");
+
+function getLeafLogs(){return JSON.parse(localStorage.getItem("leafLogs")||"[]");}
+function getFertilizerLogs(){return JSON.parse(localStorage.getItem("fertLogs")||"[]");}
+function saveLeafLogs(l){localStorage.setItem("leafLogs",JSON.stringify(l));}
+function saveFertilizerLogs(l){localStorage.setItem("fertLogs",JSON.stringify(l));}
+
+function renderLogs(){
+    leafLog.innerHTML=getLeafLogs().map(l=>`<div class="item">${l}</div>`).join("");
+    fertilizerLog.innerHTML=getFertilizerLogs().map(l=>`<div class="item">${l}</div>`).join("");
+}
+
+/* ===============================
+   HEALTH-BASED SYSTEM
+=================================*/
+
+async function checkLeafDiscoloration(){
+    try{
+        const r = await fetch("/detect");
+        const d = await r.json();
+        const now = Date.now();
+
+        const previousState = localStorage.getItem("plantUnhealthy") === "true";
+
+        if(d.discoloration){
+            if(!previousState){
+                // Log only on state change
+                const logs = getLeafLogs();
+                logs.unshift("Discoloration detected: " + new Date().toLocaleString());
+                saveLeafLogs(logs);
+
+                localStorage.setItem("plantUnhealthy","true");
+
+                // Immediate first ejection
+                triggerFertilizer(now);
+            }
+        } else {
+            if(previousState){
+                const logs = getLeafLogs();
+                logs.unshift("Plant recovered: " + new Date().toLocaleString());
+                saveLeafLogs(logs);
+            }
+
+            localStorage.setItem("plantUnhealthy","false");
+            localStorage.removeItem("lastFertilizer");
+        }
+
+        renderLogs();
+    } catch {}
+}
+
+function triggerFertilizer(timestamp){
+    const logs = getFertilizerLogs();
+    logs.unshift("Fertilizer ejected: " + new Date(timestamp).toLocaleString());
+    saveFertilizerLogs(logs);
+
+    localStorage.setItem("lastFertilizer", timestamp);
+    renderLogs();
+}
+
+function fertilizerCycle(){
+    const unhealthy = localStorage.getItem("plantUnhealthy") === "true";
+    if(!unhealthy) return;
+
+    const last = localStorage.getItem("lastFertilizer");
+    if(!last) return;
+
+    const now = Date.now();
+
+    if(now - parseInt(last) >= SEVEN_DAYS){
+        triggerFertilizer(now);
+    }
+}
+
+function updateCountdown(){
+    const unhealthy = localStorage.getItem("plantUnhealthy") === "true";
+
+    if(!unhealthy){
+        countdown.innerText = "Plant Healthy 🌿";
+        countdown.className="countdown healthy";
+        return;
+    }
+
+    const last = localStorage.getItem("lastFertilizer");
+
+    if(!last){
+        countdown.innerText="Ejecting now...";
+        countdown.className="countdown unhealthy";
+        return;
+    }
+
+    const next = parseInt(last) + SEVEN_DAYS;
+    const rem = next - Date.now();
+
+    if(rem <= 0){
+        countdown.innerText="Ejecting now...";
+        countdown.className="countdown unhealthy";
+        return;
+    }
+
+    const d=Math.floor(rem/86400000);
+    const h=Math.floor(rem/3600000%24);
+    const m=Math.floor(rem/60000%60);
+    const s=Math.floor(rem/1000%60);
+
+    countdown.innerText=`${d}d ${h}h ${m}m ${s}s`;
+    countdown.className="countdown unhealthy";
+}
+
+/* ===============================
+   INIT
+=================================*/
+
+renderLogs();
+updateCountdown();
+
+setInterval(updateCountdown,1000);
+setInterval(fertilizerCycle,60000);
+setInterval(checkLeafDiscoloration,10000);
+</script>
+
+</body>
+</html>
